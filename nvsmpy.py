@@ -6,29 +6,31 @@ import logging
 
 
 def _parse_valid_queries() -> typing.Dict:
-    quote_chars = ["\'", "\""]
+    quote_chars = ["\'", "\"","'"]
 
     cmd = f"nvidia-smi --help-query-gpu"
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     output, _ = proc.communicate()
     dec_output = output.decode("utf-8")
-    sections = dec_output.split("\r\n\r\n")
     
+    lines = dec_output.splitlines()
+    logging.debug("Processing nvidia-smi help output for valid queries")
     valid_queries = {}
-    for section in sections:
-        if len(section) != 0:
-            if section[0][0] in quote_chars:
-                subsections = section.split("\r\n")
-                if subsections[0][-1] in quote_chars:
-                    for qc in quote_chars:  # remove all quote chars from output
-                        subsections[0] = subsections[0].replace(qc, "")
-                    query = subsections[0].split(" or ")
-                    description = subsections[1]
+    for i in range(len(lines)):
+        if len(lines[i]) > 0:
+            if lines[i][0] in quote_chars:
+                for qc in quote_chars:  # remove all quote chars from output
+                    lines[i] = lines[i].replace(qc, "")
 
-                    for synonym in query:
-                        valid_queries[synonym] = description
+                query = lines[i].split(" or ")
+                description = lines[i+1]
+
+                for synonym in query:
+                    valid_queries[synonym] = description
+                    logging.debug(f"Found {synonym} with description {description}")
     
+    assert len(valid_queries) != 0, "Could not parse any valid queries on your system. Please consult the debug logs."
     return valid_queries
 
 
@@ -51,8 +53,10 @@ def get_n_system_gpus() -> int:
     cmd = f"nvidia-smi --query-gpu=count --format=csv,noheader,nounits"
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output, _ = proc.communicate()
-    dec_output = output.decode("utf-8").replace("\n", "").replace("\r", "")
-    gpu_count = int(dec_output)
+    dec_output = output.decode("utf-8")
+    lines = dec_output.splitlines()
+    gpu_count = int(lines[0])
+
     logging.debug(f"nvsmpy found {gpu_count} gpus in system.")
     globals()["N_SYSTEM_GPUS"] = gpu_count
     return gpu_count
@@ -83,10 +87,14 @@ def query(*queries):
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     output, _ = proc.communicate()
-    dec_output = output.decode("utf-8").replace(" ", "").replace("\n", "").replace("\r", "").split(",")
-    
-    assert len(dec_output) == len(queries) * N_SYSTEM_GPUS, f"Failed to parse gpu information. Size mismatch between the number of queries and number of gpus"
-    return dec_output
+    dec_output = output.decode("utf-8").replace(" ", "")
+    values = [] 
+
+    for line in dec_output.splitlines():
+        values += line.split(",")
+
+    assert len(values) == len(queries) * N_SYSTEM_GPUS, f"Failed to parse gpu information. Size mismatch between the number responses {len(values)} for queries {len(queries)} and number of gpus {N_SYSTEM_GPUS}"
+    return values
 
 
 def print_gpu_stats():
